@@ -14,7 +14,8 @@ use crate::model::{
 };
 use crate::session::{join_remote, sort_entries, TransferProgress};
 use crate::store::{
-    is_data_file_path, portable_data_dir_in, save_startup_theme_at, startup_theme_at, Store,
+    is_data_file_path, portable_data_dir_in, save_startup_theme_at, save_window_geometry_at,
+    startup_theme_at, startup_window_at, Store, WindowGeometry,
 };
 
 fn temp_dir(tag: &str) -> PathBuf {
@@ -1578,6 +1579,64 @@ fn the_startup_theme_survives_a_restart_and_defaults_to_dark() {
 
     save_startup_theme_at(&path, Theme::Dark).expect("save dark");
     assert_eq!(startup_theme_at(&path), Theme::Dark);
+
+    std::fs::remove_dir_all(&dir).ok();
+}
+
+#[test]
+fn the_window_size_survives_a_restart_beside_the_theme() {
+    let dir = temp_dir("appearance-window");
+    let path = dir.join("appearance.json");
+    let size = WindowGeometry {
+        width: 1280,
+        height: 720,
+        maximized: false,
+    };
+
+    // Nothing saved, a damaged file, and a file from a build that only
+    // knew the theme all mean the configured size.
+    assert_eq!(startup_window_at(&path), None);
+    std::fs::write(&path, b"not json").expect("write damaged file");
+    assert_eq!(startup_window_at(&path), None);
+    std::fs::write(&path, br#"{"theme":"light"}"#).expect("write theme-only file");
+    assert_eq!(startup_window_at(&path), None);
+    assert_eq!(startup_theme_at(&path), Theme::Light);
+
+    // The size joins the theme in the file without disturbing it, and the
+    // theme's own save keeps the size.
+    save_window_geometry_at(&path, size).expect("save size");
+    assert_eq!(startup_window_at(&path), Some(size));
+    assert_eq!(startup_theme_at(&path), Theme::Light);
+    save_startup_theme_at(&path, Theme::Dark).expect("save dark");
+    assert_eq!(startup_theme_at(&path), Theme::Dark);
+    assert_eq!(startup_window_at(&path), Some(size));
+
+    // Every launch reports the size it was created at: an unchanged save
+    // leaves the file alone.
+    std::fs::write(
+        &path,
+        br#"{"theme":"dark","window":{"width":1280,"height":720},"from":"a later build"}"#,
+    )
+    .expect("write file with an unknown field");
+    save_window_geometry_at(&path, size).expect("save size again");
+    let raw = std::fs::read_to_string(&path).expect("read file");
+    assert!(raw.contains("a later build"), "{raw}");
+
+    // Maximized is remembered on top of the size it restores to.
+    let maximized = WindowGeometry {
+        maximized: true,
+        ..size
+    };
+    save_window_geometry_at(&path, maximized).expect("save maximized");
+    assert_eq!(startup_window_at(&path), Some(maximized));
+
+    // An empty size (a hand-edited file) is no size at all.
+    std::fs::write(
+        &path,
+        br#"{"theme":"dark","window":{"width":0,"height":600}}"#,
+    )
+    .expect("write empty size");
+    assert_eq!(startup_window_at(&path), None);
 
     std::fs::remove_dir_all(&dir).ok();
 }

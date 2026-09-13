@@ -793,11 +793,33 @@ impl Store {
 /// exists. Every other front-end setting lives in the webview's localStorage,
 /// which nothing can read until the webview is up — and until the page paints,
 /// the window shows the colour it was created with.
-#[derive(Serialize, Deserialize)]
+#[derive(Default, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct Appearance {
+    #[serde(default)]
     theme: Theme,
+    /// The main window's size when it last changed, so the next launch opens
+    /// at it (`window_state`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    window: Option<WindowGeometry>,
 }
+
+/// The main window's size, in the logical pixels `tauri.conf.json` measures
+/// it in, so a display with another scale factor gets the same apparent size.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct WindowGeometry {
+    pub width: u32,
+    pub height: u32,
+    /// Whether the window was maximized; `width` and `height` are then the
+    /// size it restores to.
+    #[serde(default)]
+    pub maximized: bool,
+}
+
+/// Serializes the read-modify-write of `appearance.json`: the theme arrives
+/// from an IPC command, the window size from its own writer thread.
+static APPEARANCE_LOCK: Mutex<()> = Mutex::new(());
 
 /// The theme the front end last applied, dark until it has said otherwise.
 /// The window is created in this theme's background colour, so a light-theme
@@ -811,23 +833,60 @@ pub fn save_startup_theme(theme: Theme) -> Result<()> {
     save_startup_theme_at(&appearance_path_for(&config_path()), theme)
 }
 
+/// The size the main window last had, if a launch has recorded one.
+pub fn startup_window() -> Option<WindowGeometry> {
+    startup_window_at(&appearance_path_for(&config_path()))
+}
+
+/// Remembers the main window's size for the next launch.
+pub fn save_window_geometry(window: WindowGeometry) -> Result<()> {
+    save_window_geometry_at(&appearance_path_for(&config_path()), window)
+}
+
 pub(crate) fn startup_theme_at(path: &Path) -> Theme {
-    read_json::<Appearance>(path)
-        .map(|appearance| appearance.theme)
-        .unwrap_or(Theme::Dark)
+    read_appearance(path).theme
 }
 
 pub(crate) fn save_startup_theme_at(path: &Path, theme: Theme) -> Result<()> {
+    let _guard = APPEARANCE_LOCK.lock();
+    let mut appearance = read_appearance(path);
     // The front end applies its theme on every start, not only when it
     // changes, so the usual call has nothing to write.
-    if read_json::<Appearance>(path).map(|appearance| appearance.theme) == Some(theme) {
+    if appearance.theme == theme {
         return Ok(());
     }
+    appearance.theme = theme;
+    write_appearance(path, &appearance)
+}
+
+pub(crate) fn startup_window_at(path: &Path) -> Option<WindowGeometry> {
+    read_appearance(path)
+        .window
+        .filter(|window| window.width > 0 && window.height > 0)
+}
+
+pub(crate) fn save_window_geometry_at(path: &Path, window: WindowGeometry) -> Result<()> {
+    let _guard = APPEARANCE_LOCK.lock();
+    let mut appearance = read_appearance(path);
+    // Every launch reports the size it was created at, which is this one.
+    if appearance.window == Some(window) {
+        return Ok(());
+    }
+    appearance.window = Some(window);
+    write_appearance(path, &appearance)
+}
+
+/// A missing or damaged file means the defaults: dark, and no size to restore.
+fn read_appearance(path: &Path) -> Appearance {
+    read_json(path).unwrap_or_default()
+}
+
+fn write_appearance(path: &Path, appearance: &Appearance) -> Result<()> {
     let parent = path
         .parent()
         .ok_or_else(|| AppError::new("config directory has no parent"))?;
     std::fs::create_dir_all(parent)?;
-    write_owner_only(path, &serde_json::to_string_pretty(&Appearance { theme })?)
+    write_owner_only(path, &serde_json::to_string_pretty(appearance)?)
 }
 
 /// Whether `path` carries the data-file extension (`.edgeterm`, any case).

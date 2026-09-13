@@ -7,6 +7,7 @@ mod model;
 mod remote_edit;
 mod session;
 mod store;
+mod window_state;
 
 #[cfg(test)]
 mod tests;
@@ -14,6 +15,7 @@ mod tests;
 use commands::AppState;
 use model::Theme;
 use tauri::Manager;
+use window_state::{Observation, WindowMemory};
 
 /// What the window and the webview surface are painted in until the page has
 /// drawn its first frame: `--bg-app` of each theme in `styles.css`. WebView2
@@ -27,7 +29,9 @@ const DARK_BACKGROUND: tauri::window::Color = tauri::window::Color(0x18, 0x18, 0
 const LIGHT_BACKGROUND: tauri::window::Color = tauri::window::Color(0xf8, 0xf8, 0xf8, 0xff);
 
 /// Build the main window from `tauri.conf.json` (`create: false` there keeps
-/// Tauri from creating it first).
+/// Tauri from creating it first), at the size it had when it last changed
+/// (`store::startup_window`, maximized again if it was) rather than the
+/// configured one; the configured size is only the first launch's.
 ///
 /// It is created hidden and revealed by the front end once the interface has
 /// painted (`show_main_window`), so an empty frame is never on screen: the
@@ -52,6 +56,17 @@ fn create_main_window(app: &tauri::App) -> tauri::Result<()> {
         .first()
         .cloned()
         .expect("tauri.conf.json defines the main window");
+    let remembered = store::startup_window().map(|geometry| {
+        let min = (
+            config.min_width.unwrap_or(0.0) as u32,
+            config.min_height.unwrap_or(0.0) as u32,
+        );
+        window_state::fit(geometry, min, work_area(app))
+    });
+    // Managed before the window exists: its first `Resized` may arrive as
+    // soon as it is built.
+    app.manage(WindowMemory::new(remembered));
+
     // `mut` is for the decorations below, which only Windows and Linux drop.
     #[allow(unused_mut)]
     // A paste reads the clipboard from the page (`navigator.clipboard.readText`),
@@ -68,6 +83,13 @@ fn create_main_window(app: &tauri::App) -> tauri::Result<()> {
             Theme::Dark => DARK_BACKGROUND,
             Theme::Light => LIGHT_BACKGROUND,
         });
+    if let Some(geometry) = remembered {
+        // tao applies `maximized` to the hidden window and shows it that
+        // way; the size underneath is what un-maximizing returns to.
+        builder = builder
+            .inner_size(f64::from(geometry.width), f64::from(geometry.height))
+            .maximized(geometry.maximized);
+    }
     #[cfg(any(target_os = "windows", target_os = "linux"))]
     {
         builder = builder.decorations(false);
@@ -82,6 +104,33 @@ fn create_main_window(app: &tauri::App) -> tauri::Result<()> {
         let _ = window.show();
     });
     Ok(())
+}
+
+/// The logical size of the primary display's work area, where a window with
+/// no position of its own opens (macOS centres it there), for capping a
+/// remembered size.
+fn work_area(app: &tauri::App) -> Option<(u32, u32)> {
+    let monitor = app.primary_monitor().ok().flatten()?;
+    let size = monitor
+        .work_area()
+        .size
+        .to_logical::<u32>(monitor.scale_factor());
+    (size.width > 0 && size.height > 0).then_some((size.width, size.height))
+}
+
+/// What a `Resized` event says about the window, for `WindowMemory`.
+fn observe(window: &tauri::Window) -> Option<Observation> {
+    let size = window
+        .inner_size()
+        .ok()?
+        .to_logical::<u32>(window.scale_factor().ok()?);
+    Some(Observation {
+        width: size.width,
+        height: size.height,
+        minimized: window.is_minimized().ok()?,
+        maximized: window.is_maximized().ok()?,
+        fullscreen: window.is_fullscreen().ok()?,
+    })
 }
 
 /// Minimize / maximize / restore the main window.
@@ -106,8 +155,8 @@ fn window_control(window: tauri::Window, action: String) -> std::result::Result<
             IsZoomed, PostMessageW, SC_MAXIMIZE, SC_MINIMIZE, SC_RESTORE, WM_SYSCOMMAND,
         };
 
-        let hwnd = window.hwnd().map_err(|e| e.to_string())?.0
-            as windows_sys::Win32::Foundation::HWND;
+        let hwnd =
+            window.hwnd().map_err(|e| e.to_string())?.0 as windows_sys::Win32::Foundation::HWND;
         // SAFETY: `hwnd` is the live handle of a window tauri owns; IsZoomed
         // only reads its state and PostMessageW copies its arguments, so
         // neither cares that the command runs off the window's thread.
@@ -219,6 +268,24 @@ pub fn run() {
             auth_prompts: Default::default(),
             transfers: Default::default(),
         })
+        .on_window_event(|window, event| {
+            let Some(memory) = window.try_state::<WindowMemory>() else {
+                return;
+            };
+            match event {
+                tauri::WindowEvent::Resized(_) => {
+                    if let Some(seen) = observe(window) {
+                        memory.record(seen);
+                    }
+                }
+                // The close may still be refused by the front end (live
+                // sessions); writing what is already on disk costs nothing.
+                tauri::WindowEvent::CloseRequested { .. } | tauri::WindowEvent::Destroyed => {
+                    memory.flush()
+                }
+                _ => {}
+            }
+        })
         .invoke_handler(tauri::generate_handler![
             commands::list_profiles,
             commands::save_profile,
@@ -290,11 +357,14 @@ pub fn run() {
         ])
         .build(tauri::generate_context!())
         .expect("error while building EdgeTerm")
-        .run(|app, event| {
-            if let tauri::RunEvent::Exit = event {
+        .run(|app, event| match event {
+            // ⌘Q and the updater's relaunch never close the window.
+            tauri::RunEvent::ExitRequested { .. } => app.state::<WindowMemory>().flush(),
+            tauri::RunEvent::Exit => {
                 // Copies of remote files opened in local editors have no one
                 // to sync them once the app is gone.
                 app.state::<AppState>().remote_edits.stop_all(app);
             }
+            _ => {}
         });
 }

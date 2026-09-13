@@ -20,6 +20,13 @@ pub enum Theme {
     Light,
 }
 
+impl Default for Theme {
+    /// The palette the stylesheet starts from.
+    fn default() -> Self {
+        Theme::Dark
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub enum AuthKind {
