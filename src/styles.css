@@ -454,10 +454,11 @@ textarea:focus {
   white-space: nowrap;
 }
 
-/* A submenu's parent row stays lit while the pointer is inside the submenu. */
+/* A submenu's parent row stays lit while its submenu is open; what opens and
+   keeps it open is in submenuHover.ts. */
 .menu-entry:hover,
 .menu-entry:focus-visible,
-.menu-submenu-entry:hover > .menu-entry {
+.menu-submenu-entry.is-open > .menu-entry {
   background: var(--accent);
   color: var(--accent-contrast);
   outline: none;
@@ -465,10 +466,22 @@ textarea:focus {
 
 .menu-submenu-entry {
   position: relative;
+  --submenu-gap: 4px;
 }
 
 .menu-submenu-entry > .menu-entry {
   cursor: default;
+}
+
+/* The gap before the submenu belongs to the row, so a pointer crossing it
+   slowly never leaves. */
+.menu-submenu-entry.is-open::after {
+  content: "";
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 100%;
+  width: var(--submenu-gap);
 }
 
 .menu-submenu-arrow {
@@ -479,17 +492,18 @@ textarea:focus {
 }
 
 .menu-entry:hover .menu-submenu-arrow,
-.menu-submenu-entry:hover > .menu-entry .menu-submenu-arrow {
+.menu-submenu-entry.is-open > .menu-entry .menu-submenu-arrow {
   color: inherit;
 }
 
 .menu-submenu {
   top: -7px;
-  left: calc(100% + 4px);
+  left: calc(100% + var(--submenu-gap));
   display: none;
 }
 
-.menu-submenu-entry:hover > .menu-submenu,
+/* Opened by the pointer (submenuHover.ts) or by keyboard focus inside it. */
+.menu-submenu-entry.is-open > .menu-submenu,
 .menu-submenu-entry:focus-within > .menu-submenu {
   display: block;
 }
@@ -568,7 +582,7 @@ textarea:focus {
 .menu-entry:hover .menu-check,
 .menu-entry:focus-visible .menu-icon,
 .menu-entry:focus-visible .menu-check,
-.menu-submenu-entry:hover > .menu-entry .menu-icon {
+.menu-submenu-entry.is-open > .menu-entry .menu-icon {
   color: inherit;
 }
 
@@ -958,8 +972,13 @@ textarea:focus {
 /* Near the right edge (where the Filer lives) submenus open leftwards. */
 .context-menu.is-flipped .menu-submenu {
   left: auto;
-  right: calc(100% + 4px);
+  right: calc(100% + var(--submenu-gap));
   transform-origin: top right;
+}
+
+.context-menu.is-flipped .menu-submenu-entry.is-open::after {
+  left: auto;
+  right: 100%;
 }
 
 .menu-entry.is-danger {

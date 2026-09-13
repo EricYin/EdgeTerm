@@ -7,6 +7,7 @@ import {
 } from "react";
 
 import { Icon, type IconName } from "./icons";
+import { submenuKey, useSubmenuHover } from "./submenuHover";
 
 /**
  * Which control a checkable entry draws in the leading column: a box for an
@@ -145,6 +146,7 @@ export function ContextMenu({
     top: number;
     flipped: boolean;
   }>({ left: x, top: y, flipped: false });
+  const submenu = useSubmenuHover();
 
   useLayoutEffect(() => {
     const element = ref.current;
@@ -188,7 +190,7 @@ export function ContextMenu({
     };
   }, [onClose]);
 
-  const renderItems = (level: MenuItem[]) => {
+  const renderItems = (level: MenuItem[], parent?: string) => {
     const showLeading = hasLeading(level);
     return level.map((item, index) => {
       if (item === "separator") {
@@ -207,8 +209,13 @@ export function ContextMenu({
       }
       const key = `${item.label}-${index}`;
       if (item.children) {
+        const path = submenuKey(parent, index);
         return (
-          <div key={key} className="menu-submenu-entry">
+          <div
+            key={key}
+            className={`menu-submenu-entry${submenu.isOpen(path) ? " is-open" : ""}`}
+            {...submenu.entryProps(path)}
+          >
             <div className="menu-entry" role="menuitem" aria-haspopup="menu">
               {showLeading && <MenuLeading entry={item} />}
               <span className="menu-entry-label">{item.label}</span>
@@ -217,7 +224,7 @@ export function ContextMenu({
               </span>
             </div>
             <div className="menu-dropdown menu-submenu" role="menu">
-              {renderItems(item.children)}
+              {renderItems(item.children, path)}
             </div>
           </div>
         );
@@ -271,6 +278,7 @@ export function ContextMenu({
       role="menu"
       style={{ left: placement.left, top: placement.top }}
       onContextMenu={(event) => event.preventDefault()}
+      {...submenu.rootProps}
     >
       {renderItems(items)}
     </div>

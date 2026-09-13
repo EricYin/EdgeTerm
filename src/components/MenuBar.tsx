@@ -33,6 +33,7 @@ import { getController } from "../terminalRegistry";
 import type { ThemeMode } from "../types";
 import { MenuCheck, menuRole, type MenuMark } from "./ContextMenu";
 import { Icon } from "./icons";
+import { submenuKey, useSubmenuHover } from "./submenuHover";
 
 const TUTORIAL_URL = "https://miskin-lee.github.io/EdgeTerm/tutorial.html";
 
@@ -644,93 +645,10 @@ export function MenuBar(props: Props) {
           >
             {menu.title}
             {open === menu.title && (
-              // When a dropdown has checkable entries, every entry in it
-              // (submenu parents included) renders the check column so labels
-              // share one left edge. Dropdowns without any stay compact.
-              <div className="menu-dropdown">
-                {menu.entries.map((entry, index) => {
-                  if (entry === "separator") {
-                    return <div key={index} className="menu-separator" />;
-                  }
-                  const showCheck = hasCheckable(menu.entries);
-                  if (entry.children) {
-                    const children = entry.children;
-                    const showChildCheck = hasCheckable(children);
-                    return (
-                      <div
-                        key={entry.label}
-                        className="menu-submenu-entry"
-                        onMouseDown={(event) => event.stopPropagation()}
-                      >
-                        <div className="menu-entry" role="menuitem">
-                          {showCheck && <MenuCheck />}
-                          <span className="menu-entry-label">
-                            {entry.label}
-                          </span>
-                          <span
-                            className="menu-submenu-arrow"
-                            aria-hidden="true"
-                          >
-                            <Icon name="chevron-right" />
-                          </span>
-                        </div>
-                        <div className="menu-dropdown menu-submenu">
-                          {children.map((child) => (
-                            <button
-                              key={child.label}
-                              className={`menu-entry${child.checked ? " is-checked" : ""}`}
-                              role={menuRole(child)}
-                              aria-checked={
-                                child.checked !== undefined
-                                  ? child.checked
-                                  : undefined
-                              }
-                              onMouseDown={(event) => {
-                                event.stopPropagation();
-                                setOpen(null);
-                                child.action?.();
-                              }}
-                            >
-                              {showChildCheck && (
-                                <MenuCheck
-                                  checked={child.checked}
-                                  mark={child.mark}
-                                />
-                              )}
-                              <span className="menu-entry-label">
-                                {child.label}
-                              </span>
-                            </button>
-                          ))}
-                        </div>
-                      </div>
-                    );
-                  }
-                  return (
-                    <button
-                      key={entry.label}
-                      className={`menu-entry${entry.checked ? " is-checked" : ""}`}
-                      role={menuRole(entry)}
-                      aria-checked={
-                        entry.checked !== undefined ? entry.checked : undefined
-                      }
-                      onMouseDown={(event) => {
-                        event.stopPropagation();
-                        setOpen(null);
-                        entry.action?.();
-                      }}
-                    >
-                      {showCheck && (
-                        <MenuCheck checked={entry.checked} mark={entry.mark} />
-                      )}
-                      <span className="menu-entry-label">{entry.label}</span>
-                      {entry.shortcut && (
-                        <span className="menu-shortcut">{entry.shortcut}</span>
-                      )}
-                    </button>
-                  );
-                })}
-              </div>
+              <MenuDropdown
+                entries={menu.entries}
+                onClose={() => setOpen(null)}
+              />
             )}
           </div>
         ))}
@@ -767,6 +685,100 @@ export function MenuBar(props: Props) {
         </div>
         {!IS_MAC && <WindowControls maximized={maximized} />}
       </div>
+    </div>
+  );
+}
+
+/**
+ * The panel under an open menu title. Submenus open on hover and are kept
+ * open while the pointer travels over to them (see submenuHover.ts); that
+ * state lives here so it is dropped with the panel.
+ */
+function MenuDropdown({
+  entries,
+  onClose,
+}: {
+  entries: Menu["entries"];
+  onClose: () => void;
+}) {
+  const submenu = useSubmenuHover();
+  // When a dropdown has checkable entries, every entry in it (submenu
+  // parents included) renders the check column so labels share one left
+  // edge. Dropdowns without any stay compact.
+  const showCheck = hasCheckable(entries);
+  return (
+    <div className="menu-dropdown" {...submenu.rootProps}>
+      {entries.map((entry, index) => {
+        if (entry === "separator") {
+          return <div key={index} className="menu-separator" />;
+        }
+        if (entry.children) {
+          const children = entry.children;
+          const showChildCheck = hasCheckable(children);
+          const key = submenuKey(undefined, index);
+          return (
+            <div
+              key={entry.label}
+              className={`menu-submenu-entry${submenu.isOpen(key) ? " is-open" : ""}`}
+              onMouseDown={(event) => event.stopPropagation()}
+              {...submenu.entryProps(key)}
+            >
+              <div className="menu-entry" role="menuitem">
+                {showCheck && <MenuCheck />}
+                <span className="menu-entry-label">{entry.label}</span>
+                <span className="menu-submenu-arrow" aria-hidden="true">
+                  <Icon name="chevron-right" />
+                </span>
+              </div>
+              <div className="menu-dropdown menu-submenu">
+                {children.map((child) => (
+                  <button
+                    key={child.label}
+                    className={`menu-entry${child.checked ? " is-checked" : ""}`}
+                    role={menuRole(child)}
+                    aria-checked={
+                      child.checked !== undefined ? child.checked : undefined
+                    }
+                    onMouseDown={(event) => {
+                      event.stopPropagation();
+                      onClose();
+                      child.action?.();
+                    }}
+                  >
+                    {showChildCheck && (
+                      <MenuCheck checked={child.checked} mark={child.mark} />
+                    )}
+                    <span className="menu-entry-label">{child.label}</span>
+                  </button>
+                ))}
+              </div>
+            </div>
+          );
+        }
+        return (
+          <button
+            key={entry.label}
+            className={`menu-entry${entry.checked ? " is-checked" : ""}`}
+            role={menuRole(entry)}
+            aria-checked={
+              entry.checked !== undefined ? entry.checked : undefined
+            }
+            onMouseDown={(event) => {
+              event.stopPropagation();
+              onClose();
+              entry.action?.();
+            }}
+          >
+            {showCheck && (
+              <MenuCheck checked={entry.checked} mark={entry.mark} />
+            )}
+            <span className="menu-entry-label">{entry.label}</span>
+            {entry.shortcut && (
+              <span className="menu-shortcut">{entry.shortcut}</span>
+            )}
+          </button>
+        );
+      })}
     </div>
   );
 }
