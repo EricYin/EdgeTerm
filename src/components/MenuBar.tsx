@@ -19,7 +19,11 @@ import {
   toggleSessionConnection,
 } from "../actions";
 import { windowControl } from "../api";
-import { exportAppData, importAppData } from "../dataTransfer";
+import {
+  exportAppData,
+  importAppData,
+  importSshConfig,
+} from "../dataTransfer";
 import { commandHistory } from "../history";
 import { IS_MAC } from "../platform";
 import { chordLabel, type ShortcutCommand } from "../shortcuts";
@@ -404,6 +408,10 @@ export function MenuBar(props: Props) {
         "separator",
         { label: "Export Data…", action: () => void exportAppData() },
         { label: "Import Data…", action: () => void importAppData() },
+        {
+          label: "Import OpenSSH Config…",
+          action: () => void importSshConfig(),
+        },
       ],
     },
     {

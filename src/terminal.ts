@@ -358,6 +358,8 @@ export class TerminalController {
   private commandPromptRecognized = false;
   private commandOutputAdvanced = false;
   private commandRunning = false;
+  /** Callers waiting for the running command to return; see `waitForCommand`. */
+  private commandWaiters: (() => void)[] = [];
   /** Set while an agentic CLI (see `aiTools.ts`) owns the terminal. */
   private aiSession = false;
   /** Open from the user's input until the assistant goes quiet again. */
@@ -970,6 +972,27 @@ export class TerminalController {
     return this.beginCommand(undefined, command);
   }
 
+  /**
+   * Resolves once the command in progress has returned to its prompt — the
+   * Sender waits for that before the next line of a script — or after
+   * `timeoutMs`, and at once while nothing is running. The end of the
+   * session ends the wait as well, since locking resets the tracking.
+   */
+  waitForCommand(timeoutMs: number): Promise<void> {
+    if (!this.commandRunning) return Promise.resolve();
+    return new Promise((resolve) => {
+      const done = () => {
+        window.clearTimeout(timer);
+        resolve();
+      };
+      const timer = window.setTimeout(() => {
+        this.commandWaiters = this.commandWaiters.filter((w) => w !== done);
+        resolve();
+      }, timeoutMs);
+      this.commandWaiters.push(done);
+    });
+  }
+
   /** Rolls back `noteCommandSent` when the IPC write itself was rejected. */
   cancelCommandSent() {
     if (!this.commandRunning) return;
@@ -1510,6 +1533,9 @@ export class TerminalController {
     this.commandOutputAdvanced = false;
     this.commandRunning = false;
     this.endAiSession();
+    const waiters = this.commandWaiters;
+    this.commandWaiters = [];
+    for (const waiter of waiters) waiter();
   }
 
   private emitCommandState(state: "idle" | "running" | "complete") {

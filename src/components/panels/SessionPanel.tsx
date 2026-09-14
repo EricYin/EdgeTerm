@@ -3,6 +3,7 @@ import { ask } from "@tauri-apps/plugin-dialog";
 
 import { openSession, toggleSessionConnection } from "../../actions";
 import * as api from "../../api";
+import { importSshConfig } from "../../dataTransfer";
 import {
   byName,
   childGroups,
@@ -283,6 +284,17 @@ export function SessionPanel({ onEditProfile, onNewSession }: Props) {
       icon: "new-folder",
       action: () => setGroupDialog({ mode: "create", kind, parentId: null }),
     },
+    // The hosts people already `ssh` to, in bulk.
+    ...(kind === "ssh"
+      ? [
+          "separator" as const,
+          {
+            label: "Import OpenSSH Config…",
+            icon: "cloud-download" as const,
+            action: () => void importSshConfig(),
+          },
+        ]
+      : []),
   ];
 
   const groupMenu = (group: SessionGroup): MenuItem[] => [

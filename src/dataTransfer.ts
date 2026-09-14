@@ -131,3 +131,31 @@ export async function importAppData(): Promise<void> {
     store.setStatus(`Import failed: ${error}`);
   }
 }
+
+/**
+ * Session → Import OpenSSH Config…: picks a client configuration (the file
+ * dialog starts at ~/.ssh/config), parses it and opens the chooser; the
+ * import itself happens in `SshConfigImportDialog`.
+ */
+export async function importSshConfig(): Promise<void> {
+  const store = useStore.getState();
+  try {
+    const defaultPath = await api.defaultSshConfigPath();
+    const picked = await openDialog({
+      title: "Import OpenSSH Config",
+      multiple: false,
+      directory: false,
+      defaultPath,
+    });
+    const path = typeof picked === "string" ? picked : null;
+    if (!path) return;
+    const preview = await api.readSshConfig(path);
+    if (preview.entries.length === 0) {
+      store.setStatus(`No Host entries found in ${basename(path)}`);
+      return;
+    }
+    store.setSshConfigImport(preview);
+  } catch (error) {
+    store.setStatus(`Import failed: ${error}`);
+  }
+}

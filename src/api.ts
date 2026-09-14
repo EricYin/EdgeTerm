@@ -13,6 +13,8 @@ import type {
   SessionGroup,
   SessionInfo,
   SessionProfile,
+  SshConfigPreview,
+  SshImportSummary,
   ThemeMode,
 } from "./types";
 
@@ -93,6 +95,23 @@ export const readAppData = (path: string) =>
 /** Merges a file from `readAppData` into the saved data (same id replaces). */
 export const importAppData = (data: AppData) =>
   invoke<DataSummary>("import_app_data", { data });
+
+// --- OpenSSH config import --------------------------------------------------
+
+/** `~/.ssh/config`, whether or not it exists; the open dialog starts there. */
+export const defaultSshConfigPath = () =>
+  invoke<string>("default_ssh_config_path");
+
+/** Parses an OpenSSH client config and marks the aliases already saved. */
+export const readSshConfig = (path: string) =>
+  invoke<SshConfigPreview>("read_ssh_config", { path });
+
+/** Saves the chosen aliases as SSH sessions under `groupId` (null: top level). */
+export const importSshConfig = (
+  path: string,
+  aliases: string[],
+  groupId: string | null,
+) => invoke<SshImportSummary>("import_ssh_config", { path, aliases, groupId });
 
 // --- command history ---------------------------------------------------------
 

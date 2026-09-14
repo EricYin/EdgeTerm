@@ -22,6 +22,7 @@ use crate::session::{
     self, SessionCommand, SessionHandle, SessionManager, SftpRequest, SftpResponse,
     TransferProgress,
 };
+use crate::ssh_config::{self, SshConfigPreview, SshImportSummary};
 use crate::store::{self, Store};
 
 pub struct AppState {
@@ -172,6 +173,40 @@ fn require_data_file_path(path: &str) -> Result<()> {
 #[tauri::command]
 pub fn import_app_data(state: State<'_, AppState>, data: AppData) -> Result<DataSummary> {
     state.store.import_data(data)
+}
+
+// --- OpenSSH config import --------------------------------------------------
+
+/// The file `ssh` reads by default (`~/.ssh/config`), for the open dialog to
+/// start at; it may not exist.
+#[tauri::command]
+pub fn default_ssh_config_path() -> String {
+    ssh_config::Context::from_environment()
+        .default_config_path()
+        .to_string_lossy()
+        .into_owned()
+}
+
+/// Parses an OpenSSH client configuration and says which of its aliases
+/// are already saved, so the dialog can offer the rest.
+#[tauri::command]
+pub fn read_ssh_config(state: State<'_, AppState>, path: String) -> Result<SshConfigPreview> {
+    let context = ssh_config::Context::from_environment();
+    ssh_config::preview(&state.store, Path::new(&path), &context)
+}
+
+/// Saves the chosen aliases of the file as SSH sessions under `group_id`;
+/// see `ssh_config::import` for what comes along and what is updated.
+#[tauri::command]
+pub fn import_ssh_config(
+    state: State<'_, AppState>,
+    path: String,
+    aliases: Vec<String>,
+    group_id: Option<String>,
+) -> Result<SshImportSummary> {
+    let context = ssh_config::Context::from_environment();
+    let entries = ssh_config::parse_file(Path::new(&path), &context)?;
+    ssh_config::import(&state.store, &entries, &aliases, group_id, &context)
 }
 
 // --- sessions ---------------------------------------------------------------
@@ -459,11 +494,7 @@ pub async fn sftp_mkdir(state: State<'_, AppState>, id: String, path: String) ->
 }
 
 #[tauri::command]
-pub async fn sftp_create_file(
-    state: State<'_, AppState>,
-    id: String,
-    path: String,
-) -> Result<()> {
+pub async fn sftp_create_file(state: State<'_, AppState>, id: String, path: String) -> Result<()> {
     state
         .sessions
         .sftp(&id, SftpRequest::CreateFile { path })

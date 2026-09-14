@@ -6,6 +6,7 @@ mod fs_local;
 mod model;
 mod remote_edit;
 mod session;
+mod ssh_config;
 mod store;
 mod window_state;
 
@@ -302,6 +303,9 @@ pub fn run() {
             commands::export_app_data,
             commands::read_app_data,
             commands::import_app_data,
+            commands::default_ssh_config_path,
+            commands::read_ssh_config,
+            commands::import_ssh_config,
             commands::open_session,
             commands::accept_host_key,
             commands::answer_auth_prompt,

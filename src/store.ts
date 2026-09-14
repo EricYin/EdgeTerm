@@ -29,6 +29,7 @@ import type {
   SessionInfo,
   SessionProfile,
   SessionState,
+  SshConfigPreview,
   ThemeMode,
 } from "./types";
 
@@ -444,6 +445,8 @@ interface AppStore {
    * connection.
    */
   hostKeyPrompt: HostKeyPrompt | null;
+  /** The OpenSSH config being imported, while its chooser is open. */
+  sshConfigImport: SshConfigPreview | null;
   /**
    * Verification challenges from servers still authenticating a session (an
    * MFA code, a push confirmation). Each is a round the connection is
@@ -570,6 +573,7 @@ interface AppStore {
   setStatus: (status: string) => void;
   setError: (error: string | null, sessionId?: string) => void;
   setHostKeyPrompt: (prompt: HostKeyPrompt | null) => void;
+  setSshConfigImport: (preview: SshConfigPreview | null) => void;
   addAuthPrompt: (prompt: AuthPrompt) => void;
   /** Drops a challenge the dialog has just answered. */
   clearAuthPrompt: (id: string) => void;
@@ -714,6 +718,7 @@ export const useStore = create<AppStore>((set, get) => ({
   error: null,
   errorSessionId: null,
   hostKeyPrompt: null,
+  sshConfigImport: null,
   authPrompts: [],
   closePrompt: null,
   filerTarget: null,
@@ -1280,6 +1285,10 @@ export const useStore = create<AppStore>((set, get) => ({
 
   setHostKeyPrompt(prompt) {
     set({ hostKeyPrompt: prompt });
+  },
+
+  setSshConfigImport(preview) {
+    set({ sshConfigImport: preview });
   },
 
   revealInFiler(sessionId, path) {

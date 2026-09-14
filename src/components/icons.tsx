@@ -18,6 +18,7 @@ import close from "@vscode/codicons/src/icons/close.svg?raw";
 import cloudDownload from "@vscode/codicons/src/icons/cloud-download.svg?raw";
 import cloudUpload from "@vscode/codicons/src/icons/cloud-upload.svg?raw";
 import copy from "@vscode/codicons/src/icons/copy.svg?raw";
+import debugStop from "@vscode/codicons/src/icons/debug-stop.svg?raw";
 import edit from "@vscode/codicons/src/icons/edit.svg?raw";
 import error from "@vscode/codicons/src/icons/error.svg?raw";
 import folder from "@vscode/codicons/src/icons/folder.svg?raw";
@@ -46,6 +47,7 @@ import target from "@vscode/codicons/src/icons/target.svg?raw";
 import terminal from "@vscode/codicons/src/icons/terminal.svg?raw";
 import trash from "@vscode/codicons/src/icons/trash.svg?raw";
 import warning from "@vscode/codicons/src/icons/warning.svg?raw";
+import watch from "@vscode/codicons/src/icons/watch.svg?raw";
 
 /** Keyed by the codicon's own name. */
 const SVGS = {
@@ -63,6 +65,7 @@ const SVGS = {
   "cloud-download": cloudDownload,
   "cloud-upload": cloudUpload,
   copy,
+  "debug-stop": debugStop,
   edit,
   error,
   folder,
@@ -91,6 +94,7 @@ const SVGS = {
   terminal,
   trash,
   warning,
+  watch,
 } satisfies Record<string, string>;
 
 export type IconName = keyof typeof SVGS;

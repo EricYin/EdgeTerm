@@ -30,6 +30,7 @@ import {
   type SearchOverlayHandle,
 } from "./components/SearchOverlay";
 import { ShortcutsDialog } from "./components/ShortcutsDialog";
+import { SshConfigImportDialog } from "./components/SshConfigImportDialog";
 import { Splitter } from "./components/Splitter";
 import { StatusBar } from "./components/StatusBar";
 import { UpdateDialog } from "./components/UpdateDialog";
@@ -70,6 +71,8 @@ export default function App() {
   const panels = useStore((s) => s.panels);
   const togglePanel = useStore((s) => s.togglePanel);
   const loadProfiles = useStore((s) => s.loadProfiles);
+  const sshConfigImport = useStore((s) => s.sshConfigImport);
+  const setSshConfigImport = useStore((s) => s.setSshConfigImport);
   const panelFontSize = useStore((s) => s.panelFontSize);
   const bufferFontSize = useStore((s) => s.bufferFontSize);
   const terminalScrollback = useStore((s) => s.terminalScrollback);
@@ -495,6 +498,14 @@ export default function App() {
           prompt={hostKeyPrompt}
           onAccept={() => acceptHostKey(hostKeyPrompt)}
           onCancel={() => setHostKeyPrompt(null)}
+        />
+      )}
+
+      {sshConfigImport && (
+        <SshConfigImportDialog
+          key={sshConfigImport.path}
+          preview={sshConfigImport}
+          onClose={() => setSshConfigImport(null)}
         />
       )}
 

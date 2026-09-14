@@ -213,6 +213,44 @@ export interface DataSummary {
   skippedSenderCommands: number;
 }
 
+/**
+ * One `Host` alias of an OpenSSH client configuration, resolved the way
+ * `ssh alias` resolves it (Session → Import OpenSSH Config…).
+ */
+export interface SshConfigEntry {
+  alias: string;
+  host: string;
+  port: number;
+  username: string;
+  auth: AuthKind;
+  privateKeyPath?: string | null;
+  /** ProxyJump hops, first hop first: aliases of the file or `[user@]host[:port]`. */
+  jumps: string[];
+  /**
+   * A saved SSH session that already stands for the alias; importing it
+   * updates that session in place instead of adding a twin.
+   */
+  existingId?: string | null;
+  existingName?: string | null;
+}
+
+/** What an import of the file would bring in, for the dialog to choose from. */
+export interface SshConfigPreview {
+  path: string;
+  entries: SshConfigEntry[];
+}
+
+export interface SshImportSummary {
+  added: number;
+  updated: number;
+  /** Profiles created beyond the selection because a selected host tunnels through them. */
+  jumpHosts: number;
+  /** Hosts whose multi-hop ProxyJump was left unimported (only single-hop jumps are imported). */
+  jumpsIgnored: number;
+  /** Links that could not be made; the sessions themselves were saved. */
+  warnings: string[];
+}
+
 /** Colours used for session dots, mirroring WindTerm's per-session markers. */
 export const SESSION_COLORS = [
   "#4ea1f3",

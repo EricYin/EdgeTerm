@@ -2,6 +2,15 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import * as api from "../../api";
 import {
+  clampRepeat,
+  loadRepeatSettings,
+  REPEAT_LIMITS,
+  startSchedule,
+  stopSchedule,
+  storeRepeatSettings,
+  useSchedule,
+} from "../../senderSchedule";
+import {
   loadSaveLevel,
   sameScope,
   scopeChain,
@@ -11,9 +20,15 @@ import {
   storeSaveLevel,
   type ScopeLevel,
 } from "../../senderScope";
+import { newStopSignal, sendUnits, type StopSignal } from "../../senderSend";
+import {
+  buildUnits,
+  endingLabel,
+  firstLine,
+  type SendUnit,
+} from "../../senderUnits";
 import { byName } from "../../sessionGroups";
 import { useStore } from "../../store";
-import { getController } from "../../terminalRegistry";
 import {
   isFileSession,
   type CommandScope,
@@ -89,6 +104,35 @@ export function SenderPanel() {
   const [saveLevel, setSaveLevel] = useState<ScopeLevel>(loadSaveLevel);
   const saveButtonRef = useRef<HTMLButtonElement>(null);
   const tooltipTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // Repeat: the strip under the compose row and its settings. The schedule
+  // itself lives outside the panel (`senderSchedule.ts`), so hiding the
+  // panel does not stop a keepalive; the strip shows and stops it.
+  const [repeatOpen, setRepeatOpen] = useState(false);
+  const [repeat, setRepeat] = useState(loadRepeatSettings);
+  const schedule = useSchedule();
+  const [now, setNow] = useState(() => Date.now());
+  /** Abandons the send in progress between its lines. */
+  const stopRef = useRef<StopSignal | null>(null);
+  const commandRef = useRef<HTMLTextAreaElement>(null);
+
+  // The countdown to the next scheduled send.
+  useEffect(() => {
+    if (!schedule) return;
+    setNow(Date.now());
+    const timer = window.setInterval(() => setNow(Date.now()), 1000);
+    return () => window.clearInterval(timer);
+  }, [schedule]);
+
+  // The command box grows with its lines, up to the stylesheet's max-height.
+  useEffect(() => {
+    const box = commandRef.current;
+    if (!box) return;
+    box.style.height = "auto";
+    box.style.height = `${box.scrollHeight}px`;
+  }, [text]);
+
+  // A manual send does not outlive the panel; a schedule does.
+  useEffect(() => () => stopRef.current?.stop(), []);
 
   // Loads the library on mount and again after it changed outside this
   // panel (a data import, a deleted profile or group); an edit in progress
@@ -231,7 +275,7 @@ export function SenderPanel() {
 
     const newCommand: SavedCommand = {
       id: "",
-      name: tagName.trim() || text,
+      name: tagName.trim() || firstLine(text),
       text,
       format,
       ending,
@@ -293,7 +337,11 @@ export function SenderPanel() {
     setEditing({ command, draft });
     setSelectedCommandId(command.id);
     setText(command.text);
-    setTagName(command.name === command.text ? "" : command.name);
+    setTagName(
+      command.name === command.text || command.name === firstLine(command.text)
+        ? ""
+        : command.name,
+    );
     setFormat(command.format);
     setEnding(command.ending);
   };
@@ -318,7 +366,7 @@ export function SenderPanel() {
     try {
       const saved = await api.saveSenderCommand({
         ...editing.command,
-        name: tagName.trim() || text,
+        name: tagName.trim() || firstLine(text),
         text,
         format,
         ending,
@@ -365,15 +413,8 @@ export function SenderPanel() {
       setStatus("Sender: no session selected");
       return;
     }
-    const ids = targetIds.filter(
-      (id) => !getController(id)?.isTransferActive(),
-    );
-    if (ids.length === 0) {
-      setStatus("Sender: blocked while a file transfer is running");
-      return;
-    }
 
-    let units: (string | Uint8Array)[];
+    let units: SendUnit[];
     try {
       units = buildUnits(commandText, commandFormat, commandEnding);
     } catch (e) {
@@ -382,37 +423,68 @@ export function SenderPanel() {
     }
     if (units.length === 0) return;
 
+    const stop = newStopSignal();
+    stopRef.current = stop;
     setRunning(true);
-
     try {
-      const unit = units[0];
-      await Promise.all(
-        ids.map(async (id) => {
-          const controller = getController(id);
-          const tracked =
-            commandEnding !== "none" &&
-            controller?.noteCommandSent(
-              typeof unit === "string" ? unit : undefined,
-            ) === true;
-          try {
-            if (typeof unit === "string") await api.writeSession(id, unit);
-            else await api.writeSessionBinary(id, api.bytesToBase64(unit));
-          } catch (error) {
-            if (tracked) controller.cancelCommandSent();
-            throw error;
-          }
-        }),
+      const { sent, skipped } = await sendUnits(
+        targetIds,
+        units,
+        commandEnding,
+        stop,
       );
-      setStatus(
-        ids.length === targetIds.length
-          ? "Sender: sent command"
-          : `Sender: sent command; skipped ${targetIds.length - ids.length} session(s) with a file transfer running`,
-      );
+      if (sent.length === 0) {
+        setStatus(
+          "Sender: blocked while a file transfer or another send is running",
+        );
+      } else if (stop.stopped) {
+        setStatus("Sender: stopped");
+      } else {
+        const what =
+          units.length > 1 ? `sent ${units.length} lines` : "sent command";
+        setStatus(
+          skipped.length === 0
+            ? `Sender: ${what}`
+            : `Sender: ${what}; skipped ${skipped.length} session(s) with a file transfer or another send running`,
+        );
+      }
     } catch (e) {
       setStatus(`Sender: ${e}`);
     } finally {
+      stopRef.current = null;
       setRunning(false);
     }
+  };
+
+  const stopSending = () => stopRef.current?.stop();
+
+  /** Starts repeating a command with the strip's interval and count. */
+  const beginRepeat = (
+    commandText: string,
+    commandFormat: SenderFormat,
+    commandEnding: LineEnding,
+  ) => {
+    const settings = clampRepeat(repeat);
+    setRepeat(settings);
+    storeRepeatSettings(settings);
+    const sessionId =
+      target === "current" && activeTab && !isFileSession(activeTab.info.kind)
+        ? activeTab.info.id
+        : null;
+    const problem = startSchedule({
+      text: commandText,
+      format: commandFormat,
+      ending: commandEnding,
+      target,
+      sessionId,
+      every: settings.every,
+      times: settings.times,
+    });
+    if (problem) {
+      setStatus(`Sender: ${problem}`);
+      return;
+    }
+    setRepeatOpen(true);
   };
 
   const emptyMessage = commandsLoading
@@ -487,9 +559,10 @@ export function SenderPanel() {
 
       <div className="sender-compose">
         <div className="sender-command">
-          <input
+          <textarea
+            ref={commandRef}
             className="sender-command-input"
-            type="text"
+            rows={1}
             autoCapitalize="none"
             autoCorrect="off"
             spellCheck={false}
@@ -497,14 +570,17 @@ export function SenderPanel() {
             placeholder={
               format === "hex"
                 ? "48 65 6C 6C 6F   (hex bytes)"
-                : `Type a command (${endingLabel(ending)})`
+                : `Type a command (${endingLabel(ending)}); Shift+Enter adds a line`
             }
             onChange={(event) => {
               if (!editing) setSelectedCommandId(null);
-              setText(event.target.value.replace(/[\r\n]+/g, ""));
+              setText(event.target.value);
             }}
             onKeyDown={(event) => {
-              if (event.key === "Enter") {
+              // Enter runs, Shift+Enter adds a line. An Enter that ends an
+              // IME composition belongs to the input method.
+              if (event.key === "Enter" && !event.shiftKey) {
+                if (event.nativeEvent.isComposing) return;
                 event.preventDefault();
                 void sendCommand(text, format, ending);
               } else if (event.key === "Escape" && editing) {
@@ -525,15 +601,43 @@ export function SenderPanel() {
             </button>
           )}
         </div>
+        {running ? (
+          <button
+            type="button"
+            className="sender-send is-stop"
+            onClick={stopSending}
+            title="Stop after the current line"
+            aria-label="Stop sending"
+          >
+            <Icon name="debug-stop" />
+          </button>
+        ) : (
+          <button
+            type="button"
+            className="sender-send"
+            onClick={() => void sendCommand(text, format, ending)}
+            title="Run command (Enter)"
+            aria-label="Run command"
+          >
+            <Icon name="run-compact" />
+          </button>
+        )}
         <button
           type="button"
-          className="sender-send"
-          onClick={() => void sendCommand(text, format, ending)}
-          disabled={running}
-          title="Run command (Enter)"
-          aria-label="Run command"
+          className={[
+            "sender-repeat-toggle",
+            schedule ? "is-running" : repeatOpen ? "is-active" : "",
+          ]
+            .filter(Boolean)
+            .join(" ")}
+          onClick={() => setRepeatOpen((open) => !open)}
+          title={
+            schedule ? "A command is repeating on a timer" : "Repeat on a timer"
+          }
+          aria-label="Repeat on a timer"
+          aria-pressed={repeatOpen || schedule !== null}
         >
-          <Icon name="run-compact" />
+          <Icon name="watch" />
         </button>
         <div className="sender-compose-divider" aria-hidden="true" />
         <input
@@ -602,6 +706,85 @@ export function SenderPanel() {
           </button>
         )}
       </div>
+
+      {(repeatOpen || schedule) && (
+        <div
+          className={`sender-repeat${schedule ? " is-running" : ""}`}
+          role="group"
+          aria-label="Repeat"
+        >
+          <Icon name="watch" />
+          {schedule ? (
+            <>
+              <span className="sender-repeat-text">
+                Repeating <code>{firstLine(schedule.spec.text)}</code> every{" "}
+                {describeEvery(schedule.spec.every)}
+                {" · "}
+                {schedule.spec.target === "all"
+                  ? "all sessions"
+                  : "one session"}
+                {" · "}sent {schedule.sent}
+                {schedule.spec.times > 0 ? ` of ${schedule.spec.times}` : ""}
+                {schedule.nextAt !== null
+                  ? ` · next in ${Math.max(0, Math.ceil((schedule.nextAt - now) / 1000))} s`
+                  : " · sending…"}
+              </span>
+              <button
+                type="button"
+                className="sender-save-btn"
+                onClick={stopSchedule}
+              >
+                Stop
+              </button>
+            </>
+          ) : (
+            <>
+              <label className="sender-field">
+                <span>Every</span>
+                <input
+                  className="sender-repeat-number"
+                  type="number"
+                  min={REPEAT_LIMITS.minEvery}
+                  max={REPEAT_LIMITS.maxEvery}
+                  value={repeat.every}
+                  aria-label="Seconds between sends"
+                  onChange={(event) =>
+                    setRepeat({ ...repeat, every: Number(event.target.value) })
+                  }
+                />
+                <span>s</span>
+              </label>
+              <label className="sender-field">
+                <span>Times</span>
+                <input
+                  className="sender-repeat-number"
+                  type="number"
+                  min={0}
+                  max={REPEAT_LIMITS.maxTimes}
+                  value={repeat.times}
+                  aria-label="Number of sends, 0 for until stopped"
+                  onChange={(event) =>
+                    setRepeat({ ...repeat, times: Number(event.target.value) })
+                  }
+                />
+                <span>0 = until stopped</span>
+              </label>
+              <span className="sender-repeat-hint">
+                Sends the command to the chosen targets on a timer, e.g. to
+                keep a session alive.
+              </span>
+              <button
+                type="button"
+                className="sender-save-btn"
+                disabled={text.length === 0}
+                onClick={() => beginRepeat(text, format, ending)}
+              >
+                Start
+              </button>
+            </>
+          )}
+        </div>
+      )}
 
       {savePicker && (() => {
         // Broadest first, like every scope list. The check marks the current
@@ -724,6 +907,12 @@ export function SenderPanel() {
             action: () => beginEdit(command),
           },
           {
+            label: "Send Repeatedly",
+            icon: "watch",
+            action: () =>
+              beginRepeat(command.text, command.format, command.ending),
+          },
+          {
             label: "Line ending",
             icon: "newline",
             children: LINE_ENDINGS.map(([value, label]) => ({
@@ -778,50 +967,14 @@ export function SenderPanel() {
   );
 }
 
-function buildUnits(
-  text: string,
-  format: SenderFormat,
-  ending: LineEnding,
-): (string | Uint8Array)[] {
-  if (format === "hex") {
-    const cleaned = text.replace(/0x/gi, "").replace(/[^0-9a-f]/gi, "");
-    if (cleaned.length === 0) return [];
-    if (cleaned.length % 2 !== 0) {
-      throw new Error("hex input needs an even number of digits");
-    }
-    const bytes = new Uint8Array(cleaned.length / 2);
-    for (let i = 0; i < bytes.length; i++) {
-      bytes[i] = parseInt(cleaned.slice(i * 2, i * 2 + 2), 16);
-    }
-    const suffix = endingBytes(ending);
-    return [concatBytes(bytes, suffix)];
-  }
-
-  if (text.length === 0) return [];
-  return [`${text}${endingText(ending)}`];
-}
-
-function endingText(ending: LineEnding): string {
-  if (ending === "lf") return "\n";
-  if (ending === "crlf") return "\r\n";
-  return "";
-}
-
-function endingBytes(ending: LineEnding): Uint8Array {
-  if (ending === "lf") return Uint8Array.of(0x0a);
-  if (ending === "crlf") return Uint8Array.of(0x0d, 0x0a);
-  return new Uint8Array();
-}
-
-function concatBytes(left: Uint8Array, right: Uint8Array): Uint8Array {
-  const result = new Uint8Array(left.length + right.length);
-  result.set(left);
-  result.set(right, left.length);
-  return result;
-}
-
-function endingLabel(ending: LineEnding): string {
-  if (ending === "lf") return "append \\n";
-  if (ending === "crlf") return "append \\r\\n";
-  return "no line ending";
+/** `90` → "1 min 30 s", `3600` → "1 h". */
+function describeEvery(seconds: number): string {
+  const parts: string[] = [];
+  const hours = Math.floor(seconds / 3600);
+  const minutes = Math.floor((seconds % 3600) / 60);
+  const rest = seconds % 60;
+  if (hours > 0) parts.push(`${hours} h`);
+  if (minutes > 0) parts.push(`${minutes} min`);
+  if (rest > 0 || parts.length === 0) parts.push(`${rest} s`);
+  return parts.join(" ");
 }
