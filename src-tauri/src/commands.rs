@@ -16,6 +16,7 @@ use crate::model::{
 };
 use crate::remote_edit::RemoteEdits;
 use crate::session::auth::{AuthPrompter, AuthPrompts};
+use crate::session::recording::{self, Recorder};
 use crate::session::ssh::{ConnectOutcome, SftpConnectOutcome};
 use crate::session::transfer::Transfers;
 use crate::session::{
@@ -237,7 +238,22 @@ pub async fn open_session(
         session_id
     };
     let (tx, rx) = mpsc::unbounded_channel();
-    let info = session::make_info(&id, &profile);
+    let mut info = session::make_info(&id, &profile);
+    // The recording a terminal profile asked for. Opened right before the
+    // session starts producing output — after an SSH handshake, so a
+    // refused key or a wrong password leaves no empty file behind.
+    let start_recording = |info: &mut SessionInfo| -> Result<Option<Recorder>> {
+        if !profile.record {
+            return Ok(None);
+        }
+        let recorder = Recorder::start(
+            &id,
+            &profile,
+            recording::report_to_ui(app.clone(), id.clone()),
+        )?;
+        info.recording = Some(recorder.path().display().to_string());
+        Ok(Some(recorder))
+    };
 
     let owner_thread = match profile.kind {
         SessionKind::Ftp => {
@@ -249,22 +265,28 @@ pub async fn open_session(
             None
         }
         SessionKind::Local => {
-            session::local::spawn(app.clone(), id.clone(), &profile, rx)?;
+            let recorder = start_recording(&mut info)?;
+            session::local::spawn(app.clone(), id.clone(), &profile, rx, recorder)?;
             None
         }
-        SessionKind::Serial => Some(session::serial::spawn(
-            app.clone(),
-            id.clone(),
-            &profile,
-            rx,
-        )?),
+        SessionKind::Serial => {
+            let recorder = start_recording(&mut info)?;
+            Some(session::serial::spawn(
+                app.clone(),
+                id.clone(),
+                &profile,
+                rx,
+                recorder,
+            )?)
+        }
         SessionKind::Ssh => {
             let prompter = AuthPrompter::ui(&app, &state.auth_prompts, &id);
             match session::ssh::connect(&profile, &state.store.jump_chain(&profile)?, &prompter)
                 .await?
             {
                 ConnectOutcome::Ready(conn) => {
-                    session::ssh::spawn(app.clone(), id.clone(), conn, rx);
+                    let recorder = start_recording(&mut info)?;
+                    session::ssh::spawn(app.clone(), id.clone(), conn, rx, recorder);
                     None
                 }
                 // Nothing was opened; the user decides whether to trust the new
@@ -342,6 +364,13 @@ pub fn list_sessions(state: State<'_, AppState>) -> Vec<SessionInfo> {
     state.sessions.list()
 }
 
+/// Where a profile's recordings go when it names no folder of its own; the
+/// session dialog shows it as the folder field's placeholder.
+#[tauri::command]
+pub fn default_recording_dir() -> String {
+    recording::default_dir().display().to_string()
+}
+
 /// The font families installed on this machine; see `fonts`. Reading the
 /// font directories takes a moment, so it runs off the async runtime.
 #[tauri::command]
@@ -358,7 +387,8 @@ pub fn write_session(state: State<'_, AppState>, id: String, data: String) -> Re
     state.sessions.write_text(&id, &data)
 }
 
-/// Raw bytes, base64-encoded. Used by the Sender pane's hex mode.
+/// Raw bytes, base64-encoded, for ZMODEM's protocol frames; waits until
+/// the session has written them (see `SessionManager::write_confirmed`).
 #[tauri::command]
 pub async fn write_session_binary(
     state: State<'_, AppState>,

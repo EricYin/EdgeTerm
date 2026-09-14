@@ -158,6 +158,10 @@ export const closeSession = (id: string) => invoke<void>("close_session", { id }
 
 export const listSessions = () => invoke<SessionInfo[]>("list_sessions");
 
+/** Where a profile's recordings go when it names no folder of its own. */
+export const defaultRecordingDir = () =>
+  invoke<string>("default_recording_dir");
+
 /** One installed font family, as `list_system_fonts` reports it. */
 export interface FontFamily {
   name: string;
@@ -530,6 +534,18 @@ export const onSessionState = (
   handler: (event: StateEvent) => void,
 ): Promise<UnlistenFn> =>
   listen<StateEvent>("session:state", (e) => handler(e.payload));
+
+/** A session recording that can no longer be written; see session/recording.rs. */
+export interface RecordingError {
+  id: string;
+  path: string;
+  message: string;
+}
+
+export const onRecordingError = (
+  handler: (event: RecordingError) => void,
+): Promise<UnlistenFn> =>
+  listen<RecordingError>("session:recording-error", (e) => handler(e.payload));
 
 /** A server asking for a verification code (or another factor) mid-connect. */
 export const onAuthPrompt = (

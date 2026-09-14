@@ -72,6 +72,15 @@ pub struct SessionProfile {
     /// `AcceptEnv LANG`). Absent means automatic; see `session::locale`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub locale: Option<String>,
+    /// Whether every session opened from this profile writes the terminal
+    /// output it receives to a file, one file per connection. Off unless the
+    /// dialog's checkbox was ticked; see `session::recording`.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub record: bool,
+    /// Folder the recordings are written to; absent means
+    /// `session::recording::default_dir`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub record_dir: Option<String>,
 
     // --- local ---
     #[serde(default)]
@@ -209,6 +218,9 @@ pub struct SessionInfo {
     pub color: Option<String>,
     /// Whether the Filer pane can browse this session's remote filesystem.
     pub supports_remote_files: bool,
+    /// Path of the file this session's output is being recorded to, when
+    /// the profile asked for a recording; see `session::recording`.
+    pub recording: Option<String>,
 }
 
 /// An SSH host whose key no longer matches the one recorded for it in
@@ -276,13 +288,6 @@ pub enum OpenSessionOutcome {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
-pub enum SenderFormat {
-    Text,
-    Hex,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "lowercase")]
 pub enum LineEnding {
     None,
     Lf,
@@ -330,7 +335,6 @@ pub struct SavedCommand {
     pub id: String,
     pub name: String,
     pub text: String,
-    pub format: SenderFormat,
     pub ending: LineEnding,
     /// Missing in files written before scopes existed: those tags are global.
     #[serde(default)]
@@ -342,8 +346,10 @@ pub struct SavedCommand {
 pub const APP_DATA_APP: &str = "EdgeTerm";
 /// Layout version of the export file. Bump it when a change would make an
 /// older build misread a newer file; builds refuse files newer than they know.
-/// 1: initial layout. 2: Sender commands carry a `scope`.
-pub const APP_DATA_FORMAT: u32 = 2;
+/// 1: initial layout. 2: Sender commands carry a `scope`. 3: Sender
+/// commands no longer carry a `format` (hex sending was removed; a `format`
+/// in an older file is ignored and the command is sent as text).
+pub const APP_DATA_FORMAT: u32 = 3;
 /// File extension (without the dot) every data file carries. Export appends
 /// it and import refuses anything else, so a data file is recognisable before
 /// it is opened; the contents are still plain JSON.

@@ -11,7 +11,7 @@ import type { LineEnding } from "./types";
 // script landing as typeahead that a password prompt or a pager would eat.
 
 /**
- * Pause between lines the terminal cannot track — hex, no line ending, an
+ * Pause between lines the terminal cannot track — no line ending, an
  * agentic CLI holding the terminal, a serial device without a shell — the
  * way a paste is paced for such a device.
  */
@@ -99,10 +99,9 @@ async function sendSequence(
     const tracked =
       ending !== "none" &&
       controller !== undefined &&
-      controller.noteCommandSent(typeof unit === "string" ? unit : undefined);
+      controller.noteCommandSent(unit);
     try {
-      if (typeof unit === "string") await api.writeSession(id, unit);
-      else await api.writeSessionBinary(id, api.bytesToBase64(unit));
+      await api.writeSession(id, unit);
     } catch (error) {
       if (tracked) controller.cancelCommandSent();
       throw error;

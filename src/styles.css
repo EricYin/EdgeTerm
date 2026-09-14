@@ -2283,10 +2283,10 @@ textarea:focus {
 
 /* --- sender --------------------------------------------------------------- */
 
-/* Three rows: the panel header carries the send options on its right (format
-   segmented control, line ending, targets); the compose row is the command
-   field with its Send button and, set apart, the tag name and Save; the
-   library below lists the saved commands as chips. */
+/* Three rows: the panel header carries the send options on its right (line
+   ending, targets); the compose row is the command field with its Send
+   button and, set apart, the tag name and Save; the library below lists the
+   saved commands as chips. */
 .sender-header {
   border-bottom: 1px solid var(--border);
 }
@@ -2309,37 +2309,6 @@ textarea:focus {
   gap: 6px;
   color: var(--fg-faint);
   font-size: 11px;
-}
-
-/* Segmented control: a knob sliding on a sunken track (macOS / iOS). */
-.segmented {
-  display: inline-flex;
-  padding: 2px;
-  border-radius: 8px;
-  background: var(--bg-track);
-}
-
-.segmented button {
-  height: 20px;
-  padding: 0 10px;
-  border-radius: 6px;
-  color: var(--fg-dim);
-  font-size: 11px;
-  font-weight: 500;
-  transition:
-    background-color 120ms ease,
-    color 120ms ease,
-    box-shadow 120ms ease;
-}
-
-.segmented button:hover {
-  color: var(--fg);
-}
-
-.segmented button.is-active {
-  background: var(--bg-knob);
-  color: var(--fg);
-  box-shadow: var(--shadow-knob);
 }
 
 /* Compact select: the native control with its chrome stripped and our own
@@ -2798,6 +2767,26 @@ textarea:focus {
   color: var(--red);
 }
 
+/* The active session is being recorded to a file; the button opens the
+   folder. The dot is the Codicon, tinted the recording red. */
+.status-recording {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  padding: 0 4px;
+  border-radius: 4px;
+  color: var(--fg);
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  cursor: pointer;
+}
+.status-recording .icon {
+  color: var(--red);
+}
+.status-recording:hover {
+  background: var(--bg-hover);
+}
+
 /* --- splitters ------------------------------------------------------------ */
 
 /* The splitter is the 1px divider itself; a 7px hit area (`::after`)
@@ -3190,6 +3179,21 @@ textarea:focus {
   color: var(--fg-dim);
   font-size: 11px;
   font-weight: 500;
+}
+
+/* A checkbox row in the form grid: the native box with its label, sized to
+   its own content rather than the field-wide input rules below. */
+.session-check {
+  grid-column: 1 / -1;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.session-check input[type="checkbox"] {
+  margin: 0;
 }
 
 .session-field input,

@@ -40,6 +40,14 @@ export interface SessionProfile {
    * from an SSH server. Null means automatic (see session/locale.rs).
    */
   locale?: string | null;
+  /**
+   * Whether every session opened from this profile writes the output it
+   * receives to a file, one per connection. Off unless the dialog's
+   * checkbox was ticked; see session/recording.rs.
+   */
+  record?: boolean;
+  /** Folder the recordings go to; null / empty means the app's default. */
+  recordDir?: string | null;
 
   // local
   shell?: string | null;
@@ -90,6 +98,8 @@ export interface SessionInfo {
   address: string;
   color: string | null;
   supportsRemoteFiles: boolean;
+  /** Path of the file the session's output is recorded to, if it is. */
+  recording: string | null;
 }
 
 /** An SSH host whose key no longer matches the one recorded in known_hosts. */
@@ -166,7 +176,6 @@ export interface SerialPortDesc {
 
 export type SessionState = "connecting" | "connected" | "closed" | "error";
 
-export type SenderFormat = "text" | "hex";
 export type LineEnding = "none" | "lf" | "crlf";
 
 /**
@@ -184,7 +193,6 @@ export interface SavedCommand {
   id: string;
   name: string;
   text: string;
-  format: SenderFormat;
   ending: LineEnding;
   scope: CommandScope;
 }

@@ -51,6 +51,9 @@ drag = "2.1.1"
 
 parking_lot = "0.12"
 uuid = { version = "1", features = ["v4", "serde"] }
+# Already in the tree through russh-sftp and suppaftp; used directly for the
+# local time in a session recording's file name and header.
+chrono = "0.4"
 base64 = "0.22"
 dirs = "6"
 # Already in the tree through russh; used directly to seal credentials.json

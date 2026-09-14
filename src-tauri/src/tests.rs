@@ -9,8 +9,8 @@ use crate::commands::{
 use crate::fs_local;
 use crate::model::{
     split_command_line, AppData, AuthKind, CommandScope, FileEntry, LineEnding, SavedCommand,
-    SenderFormat, SessionGroup, SessionKind, SessionProfile, Theme, APP_DATA_APP,
-    APP_DATA_EXTENSION, APP_DATA_FORMAT,
+    SessionGroup, SessionKind, SessionProfile, Theme, APP_DATA_APP, APP_DATA_EXTENSION,
+    APP_DATA_FORMAT,
 };
 use crate::session::{join_remote, sort_entries, TransferProgress};
 use crate::ssh_config::{self, SshConfigEntry};
@@ -166,6 +166,8 @@ pub(crate) fn profile(kind: SessionKind) -> SessionProfile {
         group_id: None,
         encoding: None,
         locale: None,
+        record: false,
+        record_dir: None,
         shell: None,
         cwd: None,
         host: None,
@@ -456,7 +458,6 @@ fn store_persists_sender_commands_across_restarts() {
             id: String::new(),
             name: "List files".into(),
             text: "ls -la".into(),
-            format: SenderFormat::Text,
             ending: LineEnding::Lf,
             scope: CommandScope::Global,
         })
@@ -482,12 +483,73 @@ fn store_persists_sender_commands_across_restarts() {
     std::fs::remove_dir_all(&dir).ok();
 }
 
+#[test]
+fn sender_commands_saved_with_a_format_still_load() {
+    // Files written before hex sending was removed carry a `format` per
+    // command; it is ignored and the command is sent as text. A parse
+    // failure here would silently empty the library (`read_json` falls back
+    // to nothing), so this is the compatibility check that matters.
+    let dir = temp_dir("sender-format");
+    std::fs::write(
+        dir.join("sender_commands.json"),
+        r#"[{"id":"a","name":"frame","text":"DE AD","format":"hex","ending":"crlf","scope":{"type":"global"}},
+            {"id":"b","name":"ls","text":"ls","format":"text","ending":"lf","scope":{"type":"kind","kind":"ssh"}}]"#,
+    )
+    .expect("write legacy file");
+    let commands = Store::load_from(dir.join("sessions.json")).list_sender_commands();
+    assert_eq!(commands.len(), 2);
+    assert_eq!(commands[0].text, "DE AD");
+    assert_eq!(commands[0].ending, LineEnding::Crlf);
+    assert_eq!(
+        commands[1].scope,
+        CommandScope::Kind {
+            kind: SessionKind::Ssh
+        }
+    );
+
+    std::fs::remove_dir_all(&dir).ok();
+}
+
+#[test]
+fn recording_settings_round_trip_and_default_to_off() {
+    let dir = temp_dir("recording");
+    let path = dir.join("sessions.json");
+    let store = Store::load_from(path.clone());
+
+    let mut recorded = profile(SessionKind::Ssh);
+    recorded.record = true;
+    recorded.record_dir = Some("/tmp/rec".into());
+    let recorded = store.save(recorded).expect("save");
+    let back = Store::load_from(path.clone())
+        .get(&recorded.id)
+        .expect("get")
+        .expect("saved profile");
+    assert!(back.record);
+    assert_eq!(back.record_dir.as_deref(), Some("/tmp/rec"));
+
+    // An untouched profile writes neither field, so a file an older build
+    // reads back is exactly what it wrote; missing fields mean "off".
+    let mut plain = profile(SessionKind::Local);
+    plain.name = "plain".into();
+    let plain = store.save(plain).expect("save plain");
+    let json = std::fs::read_to_string(&path).expect("read sessions.json");
+    assert_eq!(json.matches("\"record\"").count(), 1, "{json}");
+    assert_eq!(json.matches("\"recordDir\"").count(), 1, "{json}");
+    let plain = Store::load_from(path)
+        .get(&plain.id)
+        .expect("get")
+        .expect("plain profile");
+    assert!(!plain.record);
+    assert!(plain.record_dir.is_none());
+
+    std::fs::remove_dir_all(&dir).ok();
+}
+
 fn command(name: &str, text: &str) -> SavedCommand {
     SavedCommand {
         id: String::new(),
         name: name.into(),
         text: text.into(),
-        format: SenderFormat::Text,
         ending: LineEnding::Lf,
         scope: CommandScope::Global,
     }
@@ -1098,7 +1160,6 @@ fn store_files_are_owner_readable_only() {
             id: String::new(),
             name: "private tag".into(),
             text: "secret command".into(),
-            format: SenderFormat::Text,
             ending: LineEnding::Lf,
             scope: CommandScope::Global,
         })

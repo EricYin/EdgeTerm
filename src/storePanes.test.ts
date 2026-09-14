@@ -26,6 +26,7 @@ const makeTab = (id: string, paneId = ROOT, state: SessionState = "connected"): 
     address: "default shell",
     color: "#4ea1f3",
     supportsRemoteFiles: false,
+    recording: null,
   },
   profile: profile(id),
   number: 1,

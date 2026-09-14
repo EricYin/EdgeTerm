@@ -1,3 +1,4 @@
+import { open as openDialog } from "@tauri-apps/plugin-dialog";
 import { useEffect, useRef, useState, type CSSProperties } from "react";
 
 import { openSession } from "../actions";
@@ -213,6 +214,8 @@ export function SessionDialog({ initial, onClose }: Props) {
       : { ...BLANK, color: randomSessionColor() },
   );
   const [ports, setPorts] = useState<SerialPortDesc[]>([]);
+  // Where recordings go when the profile names no folder; the placeholder.
+  const [defaultRecordDir, setDefaultRecordDir] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
@@ -231,6 +234,10 @@ export function SessionDialog({ initial, onClose }: Props) {
     if (profile.kind !== "serial") return;
     api.listSerialPorts().then(setPorts).catch(() => setPorts([]));
   }, [profile.kind]);
+
+  useEffect(() => {
+    api.defaultRecordingDir().then(setDefaultRecordDir).catch(() => undefined);
+  }, []);
 
   const patch = (fields: Partial<SessionProfile>) =>
     setProfile((prev) => ({ ...prev, ...fields }));
@@ -262,6 +269,12 @@ export function SessionDialog({ initial, onClose }: Props) {
       profile.kind === "local" || profile.kind === "ssh"
         ? profile.locale?.trim() || null
         : null,
+    // Recording is a terminal thing and off unless the box was ticked; the
+    // folder is kept while the box is off so ticking it again finds it.
+    record: !isFileSession(profile.kind) && profile.record === true,
+    recordDir: isFileSession(profile.kind)
+      ? null
+      : profile.recordDir?.trim() || null,
   });
 
   // One line under the title saying what the form connects to as it is filled
@@ -341,6 +354,80 @@ export function SessionDialog({ initial, onClose }: Props) {
       </>
     );
   };
+
+  const browseRecordDir = async () => {
+    try {
+      const picked = await openDialog({
+        directory: true,
+        multiple: false,
+        title: "Recording folder",
+        defaultPath: profile.recordDir?.trim() || defaultRecordDir || undefined,
+      });
+      if (typeof picked === "string") patch({ recordDir: picked });
+    } catch (e) {
+      setError(String(e));
+    }
+  };
+
+  // Session recording: off by default, one file per connection in the
+  // profile's folder (or the app's default). Terminal kinds only — a file
+  // session has no output stream to record.
+  const renderRecordingSection = () => (
+    <section className="session-section">
+      <div className="session-section-heading">
+        <Icon name="record" />
+        <span>Recording</span>
+        <small>Terminal output to a file</small>
+      </div>
+      <div className="session-form-grid">
+        <label className="session-check is-wide">
+          <input
+            type="checkbox"
+            checked={profile.record === true}
+            onChange={(event) => patch({ record: event.target.checked })}
+          />
+          <span>Record this session's output to a file</span>
+        </label>
+        {profile.record === true && (
+          <>
+            <div className="session-field is-wide">
+              <span className="session-field-label">Folder</span>
+              <div className="serial-port-row">
+                <input
+                  {...RAW_TEXT_INPUT}
+                  value={profile.recordDir ?? ""}
+                  placeholder={defaultRecordDir || "Default folder"}
+                  onChange={(event) => patch({ recordDir: event.target.value })}
+                />
+                <button
+                  type="button"
+                  className="btn serial-refresh"
+                  onClick={() => void browseRecordDir()}
+                  title="Choose a folder"
+                  aria-label="Choose a folder"
+                >
+                  <Icon name="folder-opened" />
+                </button>
+              </div>
+              <small className="session-field-hint">
+                Each connection starts a new file, named{" "}
+                {`${profile.name.trim() || defaultName()}_<date>_<time>.log`}.
+              </small>
+            </div>
+            <div className="session-note is-wide">
+              <Icon name="info" />
+              <span>
+                The file is the raw output the terminal received, escape
+                sequences included, so it replays in a terminal with cat. What
+                you type appears only as the far end echoes it, so a password
+                entered without echo is not recorded.
+              </span>
+            </div>
+          </>
+        )}
+      </div>
+    </section>
+  );
 
   // ProxyJump: tunnel this session through another saved SSH session.
   // Offered for SSH and SFTP alike, since both ride the same transport.
@@ -1036,6 +1123,8 @@ export function SessionDialog({ initial, onClose }: Props) {
               </div>
             </section>
           )}
+
+          {!isFileSession(profile.kind) && renderRecordingSection()}
 
           {error && (
             <div className="dialog-error session-dialog-error" role="alert">

@@ -6,6 +6,7 @@ use portable_pty::{native_pty_system, CommandBuilder, PtySize};
 use tauri::AppHandle;
 use tokio::sync::mpsc::UnboundedReceiver;
 
+use super::recording::Recorder;
 use super::{cwd, emit_state, locale, reject_unsupported, OutputPump, SessionCommand};
 use crate::error::{err, Result};
 use crate::model::{split_command_line, SessionKind, SessionProfile};
@@ -42,12 +43,14 @@ fn login_flag(argv: &[String], macos: bool) -> Option<&'static str> {
 ///
 /// Two threads per session: one parked on the pty reader, one draining the
 /// command queue. The pty crate is blocking, so neither belongs on the async
-/// runtime.
+/// runtime. `recorder` is the session's recording, when the profile asked
+/// for one; the reader thread feeds it and closes it when the shell exits.
 pub fn spawn(
     app: AppHandle,
     id: String,
     profile: &SessionProfile,
     mut rx: UnboundedReceiver<SessionCommand>,
+    recorder: Option<Recorder>,
 ) -> Result<()> {
     let pty = native_pty_system();
     let pair = pty
@@ -105,7 +108,7 @@ pub fn spawn(
     std::thread::Builder::new()
         .name(format!("edgeterm-pty-read-{id}"))
         .spawn(move || {
-            let mut pump = OutputPump::new(reader_app.clone(), reader_id.clone());
+            let mut pump = OutputPump::new(reader_app.clone(), reader_id.clone(), recorder);
             let mut buf = vec![0u8; 32 * 1024];
             loop {
                 match reader.read(&mut buf) {

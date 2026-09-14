@@ -1333,6 +1333,7 @@ version = "0.8.0"
 dependencies = [
  "base64 0.22.1",
  "block2",
+ "chrono",
  "clipboard-win",
  "core-foundation 0.10.1",
  "core-foundation-sys",

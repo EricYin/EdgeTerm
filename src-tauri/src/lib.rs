@@ -311,6 +311,7 @@ pub fn run() {
             commands::answer_auth_prompt,
             commands::close_session,
             commands::list_sessions,
+            commands::default_recording_dir,
             commands::write_session,
             commands::write_session_binary,
             commands::resize_session,

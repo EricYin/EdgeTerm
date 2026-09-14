@@ -34,7 +34,6 @@ import {
   type CommandScope,
   type LineEnding,
   type SavedCommand,
-  type SenderFormat,
 } from "../../types";
 import { ContextMenu, type MenuItem } from "../ContextMenu";
 import { Icon } from "../icons";
@@ -55,7 +54,6 @@ type CommandTooltip = {
 type Draft = {
   text: string;
   tagName: string;
-  format: SenderFormat;
   ending: LineEnding;
 };
 /** The scope picker hanging off the Save / Update button. */
@@ -93,7 +91,6 @@ export function SenderPanel() {
   const [editing, setEditing] = useState<Editing | null>(null);
   const [commandTooltip, setCommandTooltip] = useState<CommandTooltip | null>(null);
   const [page, setPage] = useState(1);
-  const [format, setFormat] = useState<SenderFormat>("text");
   const [target, setTarget] = useState<Target>("current");
   const [running, setRunning] = useState(false);
   const [commandsLoading, setCommandsLoading] = useState(true);
@@ -208,8 +205,8 @@ export function SenderPanel() {
     const rect = element.getBoundingClientRect();
     tooltipTimer.current = setTimeout(() => {
       setCommandTooltip({
-        // Format and line ending are in the Edit view; the tooltip answers
-        // "what does this send, and where is it listed".
+        // The line ending is in the Edit view; the tooltip answers "what
+        // does this send, and where is it listed".
         text: command.text,
         details: labelOf(command.scope),
         x: Math.max(8, Math.min(rect.left, window.innerWidth - 428)),
@@ -277,7 +274,6 @@ export function SenderPanel() {
       id: "",
       name: tagName.trim() || firstLine(text),
       text,
-      format,
       ending,
       scope,
     };
@@ -333,7 +329,7 @@ export function SenderPanel() {
     if (libraryBusy) return;
     // The first Edit remembers whatever was typed; switching tags mid-edit
     // keeps that original draft so Cancel still restores it.
-    const draft = editing?.draft ?? { text, tagName, format, ending };
+    const draft = editing?.draft ?? { text, tagName, ending };
     setEditing({ command, draft });
     setSelectedCommandId(command.id);
     setText(command.text);
@@ -342,7 +338,6 @@ export function SenderPanel() {
         ? ""
         : command.name,
     );
-    setFormat(command.format);
     setEnding(command.ending);
   };
 
@@ -352,7 +347,6 @@ export function SenderPanel() {
     setEditing(null);
     setText(draft.text);
     setTagName(draft.tagName);
-    setFormat(draft.format);
     setEnding(draft.ending);
   };
 
@@ -368,7 +362,6 @@ export function SenderPanel() {
         ...editing.command,
         name: tagName.trim() || firstLine(text),
         text,
-        format,
         ending,
         scope,
       });
@@ -404,7 +397,6 @@ export function SenderPanel() {
 
   const sendCommand = async (
     commandText: string,
-    commandFormat: SenderFormat,
     commandEnding: LineEnding,
   ) => {
     if (running) return;
@@ -414,13 +406,7 @@ export function SenderPanel() {
       return;
     }
 
-    let units: SendUnit[];
-    try {
-      units = buildUnits(commandText, commandFormat, commandEnding);
-    } catch (e) {
-      setStatus(`Sender: ${e}`);
-      return;
-    }
+    const units: SendUnit[] = buildUnits(commandText, commandEnding);
     if (units.length === 0) return;
 
     const stop = newStopSignal();
@@ -459,11 +445,7 @@ export function SenderPanel() {
   const stopSending = () => stopRef.current?.stop();
 
   /** Starts repeating a command with the strip's interval and count. */
-  const beginRepeat = (
-    commandText: string,
-    commandFormat: SenderFormat,
-    commandEnding: LineEnding,
-  ) => {
+  const beginRepeat = (commandText: string, commandEnding: LineEnding) => {
     const settings = clampRepeat(repeat);
     setRepeat(settings);
     storeRepeatSettings(settings);
@@ -473,7 +455,6 @@ export function SenderPanel() {
         : null;
     const problem = startSchedule({
       text: commandText,
-      format: commandFormat,
       ending: commandEnding,
       target,
       sessionId,
@@ -501,27 +482,6 @@ export function SenderPanel() {
           Sender
         </div>
         <div className="sender-options">
-          <div className="segmented" role="radiogroup" aria-label="Format">
-            <button
-              type="button"
-              role="radio"
-              aria-checked={format === "text"}
-              className={format === "text" ? "is-active" : ""}
-              onClick={() => setFormat("text")}
-            >
-              Text
-            </button>
-            <button
-              type="button"
-              role="radio"
-              aria-checked={format === "hex"}
-              className={format === "hex" ? "is-active" : ""}
-              onClick={() => setFormat("hex")}
-            >
-              Hex
-            </button>
-          </div>
-
           <label className="sender-field">
             <span>Ending</span>
             <span className="select-wrap">
@@ -567,11 +527,7 @@ export function SenderPanel() {
             autoCorrect="off"
             spellCheck={false}
             value={text}
-            placeholder={
-              format === "hex"
-                ? "48 65 6C 6C 6F   (hex bytes)"
-                : `Type a command (${endingLabel(ending)}); Shift+Enter adds a line`
-            }
+            placeholder={`Type a command (${endingLabel(ending)}); Shift+Enter adds a line`}
             onChange={(event) => {
               if (!editing) setSelectedCommandId(null);
               setText(event.target.value);
@@ -582,7 +538,7 @@ export function SenderPanel() {
               if (event.key === "Enter" && !event.shiftKey) {
                 if (event.nativeEvent.isComposing) return;
                 event.preventDefault();
-                void sendCommand(text, format, ending);
+                void sendCommand(text, ending);
               } else if (event.key === "Escape" && editing) {
                 event.preventDefault();
                 cancelEdit();
@@ -615,7 +571,7 @@ export function SenderPanel() {
           <button
             type="button"
             className="sender-send"
-            onClick={() => void sendCommand(text, format, ending)}
+            onClick={() => void sendCommand(text, ending)}
             title="Run command (Enter)"
             aria-label="Run command"
           >
@@ -777,7 +733,7 @@ export function SenderPanel() {
                 type="button"
                 className="sender-save-btn"
                 disabled={text.length === 0}
-                onClick={() => beginRepeat(text, format, ending)}
+                onClick={() => beginRepeat(text, ending)}
               >
                 Start
               </button>
@@ -879,11 +835,7 @@ export function SenderPanel() {
                   onMouseLeave={hideCommandTooltip}
                   onClick={() => {
                     setSelectedCommandId(command.id);
-                    void sendCommand(
-                      command.text,
-                      command.format,
-                      command.ending,
-                    );
+                    void sendCommand(command.text, command.ending);
                   }}
                 >
                   {command.name}
@@ -909,8 +861,7 @@ export function SenderPanel() {
           {
             label: "Send Repeatedly",
             icon: "watch",
-            action: () =>
-              beginRepeat(command.text, command.format, command.ending),
+            action: () => beginRepeat(command.text, command.ending),
           },
           {
             label: "Line ending",

@@ -580,6 +580,8 @@ fn new_profile(entry: &SshConfigEntry, group_id: Option<String>) -> SessionProfi
         group_id,
         encoding: None,
         locale: None,
+        record: false,
+        record_dir: None,
         shell: None,
         cwd: None,
         host: Some(entry.host.clone()),

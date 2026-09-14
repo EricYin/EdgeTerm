@@ -6,6 +6,7 @@ use serialport::{DataBits, FlowControl, Parity, SerialPortType, StopBits};
 use tauri::AppHandle;
 use tokio::sync::mpsc::{error::TryRecvError, UnboundedReceiver};
 
+use super::recording::Recorder;
 use super::{emit_state, reject_unsupported, OutputPump, SessionCommand};
 use crate::error::{err, AppError, Result};
 use crate::model::{SerialPortDesc, SessionKind, SessionProfile};
@@ -41,11 +42,15 @@ pub fn list_ports() -> Result<Vec<SerialPortDesc>> {
         .collect())
 }
 
+/// Opens the port and starts its owner thread. `recorder` is the session's
+/// recording, when the profile asked for one; the owner thread feeds it and
+/// closes it with the port.
 pub fn spawn(
     app: AppHandle,
     id: String,
     profile: &SessionProfile,
     rx: UnboundedReceiver<SessionCommand>,
+    recorder: Option<Recorder>,
 ) -> Result<JoinHandle<()>> {
     let port_name = profile
         .port_name
@@ -99,7 +104,7 @@ pub fn spawn(
     std::thread::Builder::new()
         .name(format!("edgeterm-serial-{id}"))
         .spawn(move || {
-            let mut pump = OutputPump::new(app.clone(), id.clone());
+            let mut pump = OutputPump::new(app.clone(), id.clone(), recorder);
             let close_requested = run_owner_loop(port, rx, |bytes| {
                 pump.push(bytes);
                 pump.flush();

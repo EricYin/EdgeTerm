@@ -18,6 +18,7 @@ use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
 use tokio::sync::mpsc::UnboundedReceiver;
 
 use super::auth::{AuthPrompter, Challenge};
+use super::recording::Recorder;
 use super::transfer::{
     ensure_local_directory, plan_local_upload, safe_local_child, validate_local_file_target,
     CancelFlag, ProgressReporter,
@@ -745,12 +746,14 @@ async fn connect_agent() -> Result<DynamicAgentClient> {
 }
 
 /// Drives one SSH shell session: pumps channel output to the UI and applies
-/// commands coming back from it.
+/// commands coming back from it. `recorder` is the session's recording,
+/// when the profile asked for one; it is fed here and closed with the task.
 pub fn spawn(
     app: AppHandle,
     id: String,
     conn: SshConnection,
     mut rx: UnboundedReceiver<SessionCommand>,
+    recorder: Option<Recorder>,
 ) {
     tauri::async_runtime::spawn(async move {
         let SshConnection {
@@ -759,7 +762,7 @@ pub fn spawn(
             hops,
         } = conn;
         let (mut reader, writer) = channel.split();
-        let mut pump = OutputPump::new(app.clone(), id.clone());
+        let mut pump = OutputPump::new(app.clone(), id.clone(), recorder);
         let mut sftp: Option<Arc<SftpSession>> = None;
         let mut exit_status: Option<u32> = None;
         // Set when the frontend asked for the close; see `emit_state`.

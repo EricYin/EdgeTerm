@@ -4,6 +4,7 @@ pub mod encoding;
 pub mod ftp;
 pub mod local;
 pub mod locale;
+pub mod recording;
 pub mod serial;
 pub mod ssh;
 pub mod transfer;
@@ -17,6 +18,7 @@ use serde::Serialize;
 use tauri::{ipc::Channel, AppHandle, Emitter};
 use tokio::sync::{mpsc, oneshot};
 
+use self::recording::Recorder;
 use self::transfer::CancelFlag;
 use crate::error::{AppError, Result};
 use crate::model::{DirListing, FileEntry, SessionInfo, SessionKind, SessionProfile};
@@ -256,24 +258,31 @@ pub fn emit_state(app: &AppHandle, id: &str, state: &str, message: Option<String
 
 /// Coalesces small writes so a flood of output does not turn into a flood of
 /// IPC messages. Callers must `flush` whenever their read loop goes idle.
+/// Every byte pushed also goes to the session's recording, when the profile
+/// asked for one (see `recording`); dropping the pump ends the recording.
 pub struct OutputPump {
     app: AppHandle,
     id: String,
     buf: Vec<u8>,
+    recorder: Option<Recorder>,
 }
 
 impl OutputPump {
     const MAX: usize = 64 * 1024;
 
-    pub fn new(app: AppHandle, id: String) -> Self {
+    pub fn new(app: AppHandle, id: String, recorder: Option<Recorder>) -> Self {
         Self {
             app,
             id,
             buf: Vec::with_capacity(8192),
+            recorder,
         }
     }
 
     pub fn push(&mut self, bytes: &[u8]) {
+        if let Some(recorder) = &self.recorder {
+            recorder.write(bytes);
+        }
         self.buf.extend_from_slice(bytes);
         if self.buf.len() >= Self::MAX {
             self.flush();
@@ -360,6 +369,7 @@ pub fn make_info(id: &str, profile: &SessionProfile) -> SessionInfo {
             profile.kind,
             SessionKind::Ssh | SessionKind::Ftp | SessionKind::Sftp
         ),
+        recording: None,
     }
 }
 
@@ -383,6 +393,7 @@ mod tests {
                 address: "example.test:22".into(),
                 color: None,
                 supports_remote_files: true,
+                recording: None,
             },
             tx,
             encoding: encoding_rs::UTF_8,
@@ -429,6 +440,7 @@ mod tests {
                 address: "example.test:22".into(),
                 color: None,
                 supports_remote_files: true,
+                recording: None,
             },
             tx,
             encoding: encoding_rs::GBK,

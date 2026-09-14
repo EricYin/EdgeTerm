@@ -3,7 +3,7 @@ import { useSyncExternalStore } from "react";
 import { newStopSignal, sendUnits, type StopSignal } from "./senderSend";
 import { buildUnits, type SendUnit } from "./senderUnits";
 import { useStore } from "./store";
-import { isFileSession, type LineEnding, type SenderFormat } from "./types";
+import { isFileSession, type LineEnding } from "./types";
 
 // Repeated sending: one command on a timer, for keeping a session alive
 // past a server's idle timeout or running a check every few minutes. The
@@ -59,7 +59,6 @@ export function storeRepeatSettings(settings: RepeatSettings): void {
 
 export interface ScheduleSpec {
   text: string;
-  format: SenderFormat;
   ending: LineEnding;
   /**
    * `all` resolves the open terminal sessions at every tick; `current`
@@ -135,7 +134,7 @@ function targetsOf(spec: ScheduleSpec): { ids: string[]; gone: boolean } {
 export function startSchedule(spec: ScheduleSpec): string | null {
   let units: SendUnit[];
   try {
-    units = buildUnits(spec.text, spec.format, spec.ending);
+    units = buildUnits(spec.text, spec.ending);
   } catch (error) {
     return String(error);
   }
